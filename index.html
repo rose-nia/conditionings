@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Google OAuth Test</title>
-    <script src="https://apis.google.com/js/api.js"></script>
     <script src="https://apis.google.com/js/platform.js" async defer></script>
     <style>
         body {
@@ -35,20 +34,7 @@
 
 <script>
     // Google Client ID (replace with your own)
-    const CLIENT_ID = "365428129649-e015ktlfsfksp07i6gv4b64geh12sheb.apps.googleusercontent.com";
-
-    // Start Google API client
-    function start() {
-        gapi.load('auth2', function() {
-            gapi.auth2.init({
-                client_id: CLIENT_ID
-            }).then(function() {
-                console.log("Google Auth2 initialized");
-            }).catch(function(error) {
-                console.error("Error initializing Google Auth2", error);
-            });
-        });
-    }
+    const CLIENT_ID = "365428129649-e015ktlfsfksp07i6gv4b64geh12sheb.apps.googleusercontent.com";  // Replace with your actual client ID
 
     function onSignIn(googleUser) {
         // Get user profile info
@@ -70,6 +56,18 @@
         auth2.signOut().then(function () {
             document.getElementById('user-info').style.display = 'none';
             document.getElementById('sign-in-button').style.display = 'block'; // Show sign-in button again
+        });
+    }
+
+    function start() {
+        gapi.load('auth2', function() {
+            gapi.auth2.init({
+                client_id: CLIENT_ID
+            }).then(function() {
+                console.log("Google Auth2 initialized");
+            }).catch(function(error) {
+                console.error("Error initializing Google Auth2", error);
+            });
         });
     }
 
