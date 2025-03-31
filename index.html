@@ -37,6 +37,19 @@
     // Google Client ID (replace with your own)
     const CLIENT_ID = "365428129649-e015ktlfsfksp07i6gv4b64geh12sheb.apps.googleusercontent.com";
 
+    // Start Google API client
+    function start() {
+        gapi.load('auth2', function() {
+            gapi.auth2.init({
+                client_id: CLIENT_ID
+            }).then(function() {
+                console.log("Google Auth2 initialized");
+            }).catch(function(error) {
+                console.error("Error initializing Google Auth2", error);
+            });
+        });
+    }
+
     function onSignIn(googleUser) {
         // Get user profile info
         const profile = googleUser.getBasicProfile();
@@ -60,15 +73,10 @@
         });
     }
 
-    function start() {
-        gapi.load('auth2', function() {
-            gapi.auth2.init({
-                client_id: 365428129649-e015ktlfsfksp07i6gv4b64geh12sheb.apps.googleusercontent.com
-            });
-        });
-    }
-
-    start();
+    // Initialize Google API when window is loaded
+    window.onload = function() {
+        start();
+    };
 </script>
 
 </body>
