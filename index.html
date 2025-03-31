@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="google-signin-client_id" content="762966080559-9m51u2slg4oqlaeeb3c17huiqc7i4do0.apps.googleusercontent.com">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="google-signin-client_id" content="762966080559-9m51u2slg4oqlaeeb3c17huiqc7i4do0.apps.googleusercontent.com">
     <title>Google OAuth Test</title>
     <script src="https://apis.google.com/js/platform.js" async defer></script>
     <style>
@@ -16,6 +16,10 @@
             margin-top: 20px;
         }
     </style>
+    <!-- Content Security Policy to allow Google scripts -->
+    <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com https://www.gstatic.com;">
+    <!-- Cross-Origin-Opener-Policy to allow cross-origin interactions -->
+    <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin-allow-popups">
 </head>
 <body>
 
@@ -34,7 +38,7 @@
 </div>
 
 <script>
-    // Google Client ID (replace with your own)
+    // Google Client ID (replace with your actual client ID)
     const CLIENT_ID = "762966080559-9m51u2slg4oqlaeeb3c17huiqc7i4do0.apps.googleusercontent.com";  // Replace with your actual client ID
 
     function onSignIn(googleUser) {
