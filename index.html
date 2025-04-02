@@ -115,8 +115,8 @@
 </head>
 <body>
     <div class="container-fluid text-center">
-        <h1>HTrainator</h1>
-        <h4>aka. HTTTraining Academy Conditioning Helper</h4>
+        <h1>DTrainator</h1>
+        <h4>aka. HTraining Academy Conditioning Helper</h4>
         <p>This tool will help you with your conditioning.</p>
         <ol class="text-left">
             <li>Login with your Google Drive account and select a folder with images.</li>
@@ -836,464 +836,259 @@
          * Custom renderer for BlueImp Gallery to handle blob images
          */
         function customGalleryRenderer(obj, callback) {
-            // Create an image element
-            const img = document.createElement('img');
+    // Create an image element
+    const img = document.createElement('img');
+    
+    // Set crossOrigin to anonymous to avoid CORS issues
+    img.crossOrigin = 'anonymous';
+    
+    // Add debugging for the object
+    logDebug('Gallery rendering object', { 
+        hasBlob: !!(obj.blob && obj.blob instanceof Blob),
+        blobType: obj.blob ? obj.blob.type : 'none',
+        blobSize: obj.blob ? obj.blob.size : 0,
+        title: obj.title
+    });
+    
+    // Check if we have a valid blob
+    if (obj.blob && obj.blob instanceof Blob) {
+        try {
+            // Create object URL from the blob
+            const objectUrl = URL.createObjectURL(obj.blob);
             
-            // Set crossOrigin to anonymous to avoid CORS issues
-            img.crossOrigin = 'anonymous';
+            // Set up load handler
+            img.onload = function() {
+                // Clean up the object URL to avoid memory leaks
+                URL.revokeObjectURL(objectUrl);
+                callback(img);
+            };
             
-            // Check if we have a valid blob
-            if (obj.blob && obj.blob instanceof Blob) {
-                try {
-                    // Create object URL from the blob
-                    const objectUrl = URL.createObjectURL(obj.blob);
-                    
-                    // Set up load handler
-                    img.onload = function() {
-                        // Clean up the object URL to avoid memory leaks
-                        URL.revokeObjectURL(objectUrl);
-                        callback(img);
-                    };
-                    
-                    // Set up error handler - but don't call callback here
-                    // Instead, create a fallback image
-                    img.onerror = function() {
-                        logDebug('Image failed to load in renderer', { fileId: obj.fileId });
-                        URL.revokeObjectURL(objectUrl);
-                        createFallbackImage();
-                    };
+            // Set up error handler
+            img.onerror = function() {
+                logDebug('Image failed to load in renderer', { fileId: obj.fileId });
+                URL.revokeObjectURL(objectUrl);
+                
+                // Create a simple fallback image
+                img.src = 'data:image/svg+xml;charset=UTF-8,' + 
+                    encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">' +
+                    '<rect width="400" height="300" fill="#f0f0f0" />' +
+                    '<text x="200" y="150" font-family="Arial" font-size="16" fill="#721c24" text-anchor="middle">Image failed to load</text>' +
+                    '<text x="200" y="180" font-family="Arial" font-size="16" fill="#721c24" text-anchor="middle">Please try reloading</text>' +
+                    '</svg>');
+                
+                // Call the callback with the fallback image
+                callback(img);
+            };
+    
+            // Set the image source to the object URL
+            img.src = objectUrl;
+        } catch (error) {
+            logDebug('Error creating object URL', { fileId: obj.fileId, error });
             
-                    // Set the image source to the object URL
-                    img.src = objectUrl;
-                } catch (error) {
-                    logDebug('Error creating object URL', { fileId: obj.fileId, error });
-                    createFallbackImage();
-                }
-            } else {
-                logDebug('No valid blob for image', { fileId: obj.fileId });
-                createFallbackImage();
-            }
-
-            // Helper function to create a fallback image
-            function createFallbackImage() {
-                // Create a canvas element for the fallback
-                const canvas = document.createElement('canvas');
-                canvas.width = 400;
-                canvas.height = 300;
-                const ctx = canvas.getContext('2d');
-
-                // Fill with a light gray background
-                ctx.fillStyle = '#f0f0f0';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-                // Add text
-                ctx.fillStyle = '#721c24';
-                ctx.font = '16px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText('Image data is not available', canvas.width/2, canvas.height/2 - 10);
-                ctx.fillText('Please try reloading', canvas.width/2, canvas.height/2 + 20);
-
-                // Convert canvas to image - but don't set onload directly
-                const fallbackImg = new Image();
-                
-                // Set the src after defining onload to ensure the handler is in place
-                fallbackImg.onload = function() {
-                    // Instead of directly passing the fallbackImg to callback,
-                    // copy its properties to the original img element
-                    img.src = fallbackImg.src;
-                    
-                    // Now call the callback with the original img that has all event handlers
-                    // that BlueImp Gallery expects
-                    callback(img);
-                };
-                
-                fallbackImg.src = canvas.toDataURL();
-            }
-        }
-
-        function showOptions() {
-            document.getElementById("advancedOptions").classList.add("show");
-            document.getElementById("options-toggle").onclick = hideOptions;
-        }
-
-        function hideOptions() {
-            document.getElementById("advancedOptions").classList.remove("show");
-            document.getElementById("options-toggle").onclick = showOptions;
-        }
-
-        function clearFeedback(formGroup) {
-            formGroup.classList.remove("has-error");
-            formGroup.classList.remove("has-success");
-
-            var icon = formGroup.getElementsByTagName("span")[0];
-            icon.classList.remove("glyphicon-remove");
-            icon.classList.remove("glyphicon-ok");
-            icon.classList.add("hidden");
-        }
-
-        function feedbackOK(formGroup) {
-            formGroup.classList.remove("has-error");
-            formGroup.classList.add("has-success");
-
-            var icon = formGroup.getElementsByTagName("span")[0];
-            icon.classList.remove("glyphicon-remove");
-            icon.classList.add("glyphicon-ok");
-            icon.classList.remove("hidden");
-        }
-
-        function feedbackError(formGroup) {
-            formGroup.classList.remove("has-success");
-            formGroup.classList.add("has-error");
-
-            var icon = formGroup.getElementsByTagName("span")[0];
-            icon.classList.remove("glyphicon-ok");
-            icon.classList.add("glyphicon-remove");
-            icon.classList.remove("hidden");
-        }
-
-        function shuffle(array) {
-            var j, x, i;
-            for (i = array.length - 1; i > 0; i--) {
-                j = Math.floor(Math.random() * (i + 1));
-                x = array[i];
-                array[i] = array[j];
-                array[j] = x;
-            }
-        }
-
-        function tick() {
-            htrainee.playing = true;
-
-            if (htrainee.beats > 0) {
-                htrainee.tickSound.play();
-            }
-
-            if (htrainee.nextValue > 0 && htrainee.tickCount >= htrainee.nextValue) {
-                htrainee.tickCount = 0;
-                htrainee.gallery.next();
-            }
-            htrainee.tickCount += 1;
-            htrainee.totalTickCount += 1;
-
-            var diff = (new Date().getTime() - htrainee.startTime) - (htrainee.totalTickCount * 1000 / (htrainee.beats / 60));
-            htrainee.metronome = window.setTimeout(tick, 1000 / (htrainee.beats / 60) - diff);
-        }
-
-        function toggleSlideShow(event) {
-            // Always pause blueimp-gallery intern slideshow
-            htrainee.gallery.pause();
-
-            if (htrainee.playing) {
-                stopMetronome();
-                document.getElementById("blueimp-gallery").classList.remove("blueimp-gallery-playing");
-                htrainee.playing = false;
-            } else {
-                start();
-            }
-
-            // Prevent the gallery event listeners from being called
-            if (event) {
-                event.stopPropagation();
-            }
-        }
-
-        function start(event) {
-            if (!htrainee.urls || htrainee.urls.length <= 0) {
-                listFiles(htrainee.folderSelect.value);
-
-                // If still no urls do not start
-                if (!htrainee.urls || htrainee.urls.length <= 0) {
-                    return;
-                }
-            }
-            if (!htrainee.beats) {
-                feedbackError(document.getElementById("beats-group"));
-                return;
-            }
-            if (htrainee.beats != 0 && !htrainee.nextValue) {
-                feedbackError(document.getElementById("next-group"));
-                return;
-            }
-            if (!htrainee.limitValue) {
-                feedbackError(document.getElementById("limit-group"));
-                return;
-            }
-            if (!htrainee.tickCount) {
-                htrainee.tickCount = 1;
-            }
-            htrainee.totalTickCount = 0;
-
-            if (!htrainee.gallery) {
-                showLoading(true);
-                
-                // Check if we have a cached result
-                if (htrainee.cachedGalleryItems && htrainee.cachedFolderId === htrainee.folderSelect.value) {
-                    showLoading(false);
-                    startGallery(htrainee.cachedGalleryItems);
-                    return;
-                }
-                
-                // Process images in a queue to avoid rate limiting
-                let fileIdsToProcess = [...htrainee.fileIds];
-                
-                // Apply limit if needed
-                if (htrainee.limitValue > 0 && fileIdsToProcess.length > htrainee.limitValue) {
-                    // If shuffle is checked, shuffle before limiting
-                    if (htrainee.shuffleCheckbox.checked) {
-                        shuffle(fileIdsToProcess);
-                    }
-                    fileIdsToProcess = fileIdsToProcess.slice(0, htrainee.limitValue);
-                }
-                
-                processImagesQueue(fileIdsToProcess, function(validItems) {
-                    showLoading(false);
-                    
-                    if (validItems.length === 0) {
-                        showError("No images could be loaded. Please check your permissions and try again.");
-                        return;
-                    }
-                    
-                    // Cache the results
-                    htrainee.cachedGalleryItems = validItems;
-                    htrainee.cachedFolderId = htrainee.folderSelect.value;
-                    
-                    startGallery(validItems);
-                });
-            } else {
-                if (htrainee.beats > 0) {
-                    htrainee.startTime = new Date().getTime();
-                    htrainee.metronome = setTimeout(tick, 1000 / (htrainee.beats / 60));
-                    document.getElementById("blueimp-gallery").classList.add("blueimp-gallery-playing");
-                    htrainee.playing = true;
-                }
-            }
-        }
-
-        function startGallery(items) {
-            var validItems = [...items]; // Clone the array
+            // Create a simple fallback image
+            img.src = 'data:image/svg+xml;charset=UTF-8,' + 
+                encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">' +
+                '<rect width="400" height="300" fill="#f0f0f0" />' +
+                '<text x="200" y="150" font-family="Arial" font-size="16" fill="#721c24" text-anchor="middle">Error creating image</text>' +
+                '<text x="200" y="180" font-family="Arial" font-size="16" fill="#721c24" text-anchor="middle">Please try again</text>' +
+                '</svg>');
             
-            // If shuffle is checked and we haven't already shuffled (in the case of limiting)
-            if (htrainee.shuffleCheckbox.checked && htrainee.limitValue <= 0) {
-                shuffle(validItems);
-            }
-
-            // Override the default renderer to use our custom one
-            blueimp.Gallery.prototype.imageFactory = customGalleryRenderer;
-
-            // Create gallery items in the format expected by BlueImp Gallery
-            // Make sure each item has a valid blob
-            const galleryItems = validItems.filter(item => item.blob && item.blob instanceof Blob).map(item => ({
-                title: item.title || '',
-                fileId: item.fileId || '',
-                blob: item.blob
-            }));
-
-            if (galleryItems.length === 0) {
-                showError("No valid images could be loaded. Please try again.");
-                showLoading(false);
-                return;
-            }
-
-            htrainee.gallery = blueimp.Gallery(galleryItems, {
-                onclose: stop,
-                preloadRange: 2,
-                onopened: function() {
-                    logDebug('Gallery opened', { imageCount: galleryItems.length });
-                },
-                onerror: function(e) {
-                    logDebug('Gallery error', e);
-                }
-            });
-
-            if (htrainee.beats > 0) {
-                // Custom event listeners have to be added after gallery ones, so they will be called first
-                document.getElementById("play-pause").addEventListener("click", toggleSlideShow);
-                document.body.addEventListener("keydown", function(event) {
-                    var key = event.which || event.keyCode;
-                    if (key == 32) { // Space
-                        toggleSlideShow(event);
-                    }
-                });
-            }
-            
-            if (htrainee.beats > 0) {
-                htrainee.startTime = new Date().getTime();
-                htrainee.metronome = setTimeout(tick, 1000 / (htrainee.beats / 60));
-                document.getElementById("blueimp-gallery").classList.add("blueimp-gallery-playing");
-                htrainee.playing = true;
-            }
+            // Call the callback with the fallback image
+            callback(img);
         }
+    } else {
+        logDebug('No valid blob for image', { fileId: obj.fileId });
+        
+        // Create a simple fallback image
+        img.src = 'data:image/svg+xml;charset=UTF-8,' + 
+            encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">' +
+            '<rect width="400" height="300" fill="#f0f0f0" />' +
+            '<text x="200" y="150" font-family="Arial" font-size="16" fill="#721c24" text-anchor="middle">No image data available</text>' +
+            '<text x="200" y="180" font-family="Arial" font-size="16" fill="#721c24" text-anchor="middle">Please try reloading</text>' +
+            '</svg>');
+        
+        // Call the callback with the fallback image
+        callback(img);
+    }
+}
 
-        function stopMetronome() {
-            if (htrainee.metronome) {
-                clearTimeout(htrainee.metronome);
+// Replace the startGallery function with this updated version
+function startGallery(items) {
+    var validItems = [...items]; // Clone the array
+    
+    // If shuffle is checked and we haven't already shuffled (in the case of limiting)
+    if (htrainee.shuffleCheckbox.checked && htrainee.limitValue <= 0) {
+        shuffle(validItems);
+    }
+
+    // Override the default renderer to use our custom one
+    blueimp.Gallery.prototype.imageFactory = customGalleryRenderer;
+
+    // Create gallery items in the format expected by BlueImp Gallery
+    // Make sure each item has a valid blob
+    const galleryItems = validItems.filter(item => item.blob && item.blob instanceof Blob).map(item => ({
+        title: item.title || '',
+        fileId: item.fileId || '',
+        blob: item.blob
+    }));
+
+    if (galleryItems.length === 0) {
+        showError("No valid images could be loaded. Please try again.");
+        showLoading(false);
+        return;
+    }
+
+    // Add more debugging
+    logDebug('Starting gallery with items', { 
+        count: galleryItems.length,
+        firstItem: galleryItems.length > 0 ? {
+            hasBlob: !!(galleryItems[0].blob && galleryItems[0].blob instanceof Blob),
+            blobType: galleryItems[0].blob ? galleryItems[0].blob.type : 'none',
+            blobSize: galleryItems[0].blob ? galleryItems[0].blob.size : 0,
+            title: galleryItems[0].title
+        } : 'none'
+    });
+
+    // Create the gallery with additional error handling
+    try {
+        htrainee.gallery = blueimp.Gallery(galleryItems, {
+            onclose: stop,
+            preloadRange: 2,
+            onopened: function() {
+                logDebug('Gallery opened', { imageCount: galleryItems.length });
+            },
+            onerror: function(e) {
+                logDebug('Gallery error', e);
             }
-        }
-
-        function stop() {
-            stopMetronome();
-            htrainee.startTime = null;
-            htrainee.tickCount = null;
-            htrainee.totalTickCount = null;
-            htrainee.gallery = null;
-        }
-
-        function updateStartHelp() {
-            if (htrainee.urls && htrainee.limitValue && htrainee.beats > 0 && htrainee.nextValue > 0) {
-                var imagesPerSecond = htrainee.beats / htrainee.nextValue / 60;
-                var totalImages = (htrainee.limitValue == 0) ? htrainee.urls.length : htrainee.limitValue;
-                var totalSeconds = totalImages / imagesPerSecond;
-                htrainee.startHelp.innerHTML = 'Estimated training time: ' + totalSeconds.toString().toHHMMSS();
-            } else {
-                clearStartHelp();
-            }
-        }
-
-        function clearStartHelp() {
-            htrainee.startHelp.innerHTML = '';
-        }
-
-        String.prototype.toHHMMSS = function() {
-            var sec_num = parseInt(this, 10); // don't forget the second param
-            var hours = Math.floor(sec_num / 3600);
-            var minutes = Math.floor((sec_num - (hours * 3600)) / 60);
-            var seconds = sec_num - (hours * 3600) - (minutes * 60);
-
-            if (hours < 10) { hours = "0" + hours; }
-            if (minutes < 10) { minutes = "0" + minutes; }
-            if (seconds < 10) { seconds = "0" + seconds; }
-            return hours + ':' + minutes + ':' + seconds;
-        };
-
-        // Helper functions for UI
-        function showError(message) {
-            htrainee.statusDiv.textContent = message;
-            htrainee.statusDiv.className = 'error';
-            htrainee.statusDiv.classList.remove('hidden');
-            setTimeout(() => {
-                htrainee.statusDiv.classList.add('hidden');
-            }, 7000);
-        }
-
-        function showSuccess(message) {
-            htrainee.statusDiv.textContent = message;
-            htrainee.statusDiv.className = 'success';
-            htrainee.statusDiv.classList.remove('hidden');
-            setTimeout(() => {
-                htrainee.statusDiv.classList.add('hidden');
-            }, 3000);
-        }
-
-        function showLoading(show) {
-            if (show) {
-                htrainee.loadingDiv.classList.remove('hidden');
-            } else {
-                htrainee.loadingDiv.classList.add('hidden');
-            }
-        }
-
-        // Debug logging
-        function logDebug(title, data) {
-            console.log(title, data);
-            
-            // Also show in the debug div for troubleshooting
-            htrainee.debugDiv.classList.remove('hidden');
-            const pre = document.createElement('pre');
-            pre.classList.add('debug');
-            pre.textContent = title + '\n' + JSON.stringify(data, null, 2);
-            htrainee.debugDiv.appendChild(pre);
-        }
-
-        // Event listeners
-        htrainee.authorizeButton.onclick = handleAuthClick;
-        htrainee.signoutButton.onclick = handleSignoutClick;
-        htrainee.startButton.onclick = start;
-
-        htrainee.beatsInput.onchange = function(event) {
-            htrainee.beats = htrainee.beatsInput.value;
-            if (htrainee.beats >= 0) {
-                feedbackOK(document.getElementById("beats-group"));
-            } else {
-                htrainee.beats = undefined;
-                feedbackError(document.getElementById("beats-group"));
-            }
-
-            if (htrainee.beats >= 0 && htrainee.nextValue >= 0 && htrainee.limitValue >= 0) {
-                updateStartHelp();
-            } else {
-                clearStartHelp();
-            }
-        };
-
-        htrainee.nextInput.onchange = function(event) {
-            htrainee.nextValue = htrainee.nextInput.value;
-            if (htrainee.nextValue >= 0) {
-                feedbackOK(document.getElementById("next-group"));
-            } else {
-                htrainee.nextValue = undefined;
-                feedbackError(document.getElementById("next-group"));
-            }
-
-            if (htrainee.beats >= 0 && htrainee.nextValue >= 0 && htrainee.limitValue >= 0) {
-                updateStartHelp();
-            } else {
-                clearStartHelp();
-            }
-        };
-
-        htrainee.limitInput.onchange = function(event) {
-            htrainee.limitValue = htrainee.limitInput.value;
-            if (htrainee.limitValue >= 0) {
-                feedbackOK(document.getElementById("limit-group"));
-            } else {
-                htrainee.limitValue = undefined;
-                feedbackError(document.getElementById("limit-group"));
-            }
-
-            if (htrainee.beats >= 0 && htrainee.nextValue >= 0 && htrainee.limitValue >= 0) {
-                updateStartHelp();
-            } else {
-                clearStartHelp();
-            }
-        };
-
-        // Set defaults
-        htrainee.limitInput.value = 0;
-        htrainee.limitInput.dispatchEvent(new Event("change"));
-
-        // Set options if args are present
-        var args_shuffle = parseInt(htrainee.args["shuffle"]);
-        if (args_shuffle) {
-            if (args_shuffle == 1) {
-                htrainee.shuffleCheckbox.checked = true;
-            }
-        }
-        var args_beats = parseInt(htrainee.args["bpm"]);
-        if (args_beats) {
-            htrainee.beatsInput.value = args_beats;
-            htrainee.beatsInput.dispatchEvent(new Event("change"));
-        }
-        var args_next = parseInt(htrainee.args["next"]);
-        if (args_next) {
-            htrainee.nextInput.value = args_next;
-            htrainee.nextInput.dispatchEvent(new Event("change"));
-        }
-        var args_limit = parseInt(htrainee.args["limit"]);
-        if (args_limit) {
-            htrainee.limitInput.value = args_limit;
-            htrainee.limitInput.dispatchEvent(new Event("change"));
-        }
-
-        // Initialize the application
-        document.addEventListener('DOMContentLoaded', function() {
-            // Disable the button until the API is ready
-            htrainee.authorizeButton.disabled = true;
-            logDebug('DOM loaded, waiting for APIs', {});
         });
 
-        // Start the API initialization
-        gapiLoaded();
-        gisLoaded();
+        if (htrainee.beats > 0) {
+            // Custom event listeners have to be added after gallery ones, so they will be called first
+            document.getElementById("play-pause").addEventListener("click", toggleSlideShow);
+            document.body.addEventListener("keydown", function(event) {
+                var key = event.which || event.keyCode;
+                if (key == 32) { // Space
+                    toggleSlideShow(event);
+                }
+            });
+        }
+        
+        if (htrainee.beats > 0) {
+            htrainee.startTime = new Date().getTime();
+            htrainee.metronome = setTimeout(tick, 1000 / (htrainee.beats / 60));
+            document.getElementById("blueimp-gallery").classList.add("blueimp-gallery-playing");
+            htrainee.playing = true;
+        }
+    } catch (error) {
+        logDebug('Error creating gallery', error);
+        showError("Error creating gallery: " + error.message);
+    }
+}
+
+// Add a direct method to try viewing a single image for testing
+function testViewImage(fileId) {
+    if (!fileId && htrainee.fileIds && htrainee.fileIds.length > 0) {
+        fileId = htrainee.fileIds[0]; // Use the first image if none specified
+    }
+    
+    if (!fileId) {
+        showError("No images available to test");
+        return;
+    }
+    
+    showLoading(true);
+    logDebug('Testing image view', { fileId });
+    
+    exportFile(fileId).then(blob => {
+        showLoading(false);
+        
+        if (!blob) {
+            showError("Failed to load test image");
+            return;
+        }
+        
+        // Create a temporary URL for the blob
+        const url = URL.createObjectURL(blob);
+        
+        // Create a simple viewer
+        const viewer = document.createElement('div');
+        viewer.style.position = 'fixed';
+        viewer.style.top = '0';
+        viewer.style.left = '0';
+        viewer.style.width = '100%';
+        viewer.style.height = '100%';
+        viewer.style.backgroundColor = 'rgba(0,0,0,0.8)';
+        viewer.style.zIndex = '9999';
+        viewer.style.display = 'flex';
+        viewer.style.alignItems = 'center';
+        viewer.style.justifyContent = 'center';
+        
+        // Add close button
+        const closeBtn = document.createElement('button');
+        closeBtn.textContent = 'Close';
+        closeBtn.style.position = 'absolute';
+        closeBtn.style.top = '20px';
+        closeBtn.style.right = '20px';
+        closeBtn.style.zIndex = '10000';
+        closeBtn.onclick = function() {
+            document.body.removeChild(viewer);
+            URL.revokeObjectURL(url);
+        };
+        
+        // Create image
+        const img = document.createElement('img');
+        img.style.maxWidth = '90%';
+        img.style.maxHeight = '90%';
+        img.style.objectFit = 'contain';
+        img.crossOrigin = 'anonymous';
+        
+        img.onload = function() {
+            logDebug('Test image loaded successfully', { 
+                width: img.width, 
+                height: img.height,
+                naturalWidth: img.naturalWidth,
+                naturalHeight: img.naturalHeight
+            });
+        };
+        
+        img.onerror = function() {
+            logDebug('Test image failed to load', { url });
+            img.src = 'data:image/svg+xml;charset=UTF-8,' + 
+                encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">' +
+                '<rect width="400" height="300" fill="#f0f0f0" />' +
+                '<text x="200" y="150" font-family="Arial" font-size="16" fill="#721c24" text-anchor="middle">Image failed to load</text>' +
+                '<text x="200" y="180" font-family="Arial" font-size="16" fill="#721c24" text-anchor="middle">Please try reloading</text>' +
+                '</svg>');
+        };
+        
+        img.src = url;
+        
+        viewer.appendChild(img);
+        viewer.appendChild(closeBtn);
+        document.body.appendChild(viewer);
+    }).catch(error => {
+        showLoading(false);
+        showError("Error testing image: " + error.message);
+        logDebug('Test image error', error);
+    });
+}
+
+// Add a button to test viewing a single image
+window.addEventListener('DOMContentLoaded', function() {
+    const testButton = document.createElement('button');
+    testButton.textContent = 'Test View First Image';
+    testButton.className = 'btn btn-info';
+    testButton.style.marginTop = '10px';
+    testButton.onclick = function() {
+        testViewImage();
+    };
+    
+    // Add it after the start button
+    const startButton = document.getElementById('start-button');
+    if (startButton && startButton.parentNode) {
+        startButton.parentNode.appendChild(testButton);
+    }
+});
     </script>
 </body>
 </html>
