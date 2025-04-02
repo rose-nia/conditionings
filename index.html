@@ -104,6 +104,13 @@
             border-radius: 4px;
             text-align: center;
         }
+        .progress-container {
+            margin: 20px 0;
+        }
+        .progress {
+            height: 20px;
+            margin-bottom: 10px;
+        }
     </style>
 </head>
 <body>
@@ -203,6 +210,16 @@
         
         <div id="status" class="hidden"></div>
         <div id="loading" class="loading hidden">Loading folders...</div>
+        
+        <div id="progress-container" class="progress-container hidden">
+            <div class="progress">
+                <div id="progress-bar" class="progress-bar progress-bar-striped active" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%">
+                    <span id="progress-text">0%</span>
+                </div>
+            </div>
+            <div id="progress-status">Preparing images...</div>
+        </div>
+        
         <div id="debug" class="hidden"></div>
     </div>
 
@@ -245,6 +262,12 @@
 
         // Initialize the image cache
         htrainee.imageCache = {};
+        
+        // Progress elements
+        htrainee.progressContainer = document.getElementById("progress-container");
+        htrainee.progressBar = document.getElementById("progress-bar");
+        htrainee.progressText = document.getElementById("progress-text");
+        htrainee.progressStatus = document.getElementById("progress-status");
 
         function escapeHtml(str) {
             var div = document.createElement("div");
@@ -477,21 +500,7 @@
         }
 
         /**
-         * Get direct download URL for a Google Drive file
-         */
-        function getDirectDownloadUrl(fileId) {
-            // Get the access token
-            const token = gapi.client.getToken();
-            if (!token) {
-                return null;
-            }
-            
-            // Return the direct download URL with the access token
-            return `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&access_token=${token.access_token}`;
-        }
-
-        /**
-         * Load all files of a google drive folder and init blueimp gallery
+         * Load all files of a google drive folder
          */
         function listFiles(folderId) {
             showLoading(true);
@@ -506,7 +515,7 @@
             function fetchPage() {
                 const params = {
                     'q': "trashed=false and '" + folderId + "' in parents and mimeType contains 'image/' and mimeType != 'application/vnd.google-apps.folder'",
-                    'fields': "nextPageToken, files(id, name, mimeType)",
+                    'fields': "nextPageToken, files(id, name, mimeType, webContentLink)",
                     'pageSize': pageSize
                 };
                 
@@ -523,9 +532,8 @@
                                 htrainee.fileIds.push(files[i].id);
                                 htrainee.fileNames.push(files[i].name);
                                 
-                                // We'll use the direct API URL with authentication token
-                                const directUrl = getDirectDownloadUrl(files[i].id);
-                                htrainee.urls.push(directUrl);
+                                // Store the file ID for later use with exportFile
+                                htrainee.urls.push(files[i].id);
                             }
                             
                             // Check if there are more pages
@@ -688,95 +696,140 @@
         }
 
         /**
-         * Fetch an image with authentication and cache it
+         * Export a file from Google Drive using a more reliable method
          */
-        async function fetchImageWithAuth(fileId) {
-            // Check if the image is in the cache
-            const cachedImage = getImageFromCache(fileId);
-            if (cachedImage) {
-                return cachedImage;
-            }
-
-            // Get a fresh token if needed
-            const token = gapi.client.getToken();
-            if (!token) {
-                throw new Error('No authentication token available');
-            }
-
+        async function exportFile(fileId) {
             try {
-                // Fetch the image with the current token
-                const url = getDirectDownloadUrl(fileId);
-                const response = await fetch(url, {
-                    headers: {
-                        'Cache-Control': 'no-cache',
-                        'Pragma': 'no-cache'
-                    }
-                });
-                
-                if (!response.ok) {
-                    // If unauthorized, try to refresh the token
-                    if (response.status === 401 || response.status === 403) {
-                        logDebug('Token expired or access denied, refreshing', { status: response.status });
-                        
-                        // Try to refresh the token
-                        await new Promise((resolve, reject) => {
-                            tokenClient.callback = (resp) => {
-                                if (resp.error) {
-                                    logDebug('Token refresh failed', resp);
-                                    reject(new Error('Token refresh failed'));
-                                } else {
-                                    logDebug('Token refreshed', {});
-                                    resolve();
-                                }
-                            };
-                            tokenClient.requestAccessToken({prompt: ''});
-                        });
-                        
-                        // Try again with the new token
-                        const newUrl = getDirectDownloadUrl(fileId);
-                        const newResponse = await fetch(newUrl, {
-                            headers: {
-                                'Cache-Control': 'no-cache',
-                                'Pragma': 'no-cache'
-                            }
-                        });
-                        
-                        if (!newResponse.ok) {
-                            throw new Error(`Failed to fetch image after token refresh: ${newResponse.status}`);
-                        }
-                        
-                        const blob = await newResponse.blob();
-                        cacheImage(fileId, blob);
-                        return blob;
-                    } else if (response.status === 429) {
-                        // Rate limiting - implement exponential backoff
-                        const retryAfter = response.headers.get('Retry-After') || 1;
-                        logDebug('Rate limited, retrying after delay', { retryAfter });
-                        
-                        await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
-                        
-                        // Try again after waiting
-                        return fetchImageWithAuth(fileId);
-                    } else {
-                        throw new Error(`Failed to fetch image: ${response.status}`);
-                    }
+                // Check if the image is in the cache
+                const cachedImage = await getImageFromCache(fileId);
+                if (cachedImage) {
+                    return cachedImage;
                 }
+
+                // Get a fresh token if needed
+                const token = gapi.client.getToken();
+                if (!token) {
+                    throw new Error('No authentication token available');
+                }
+
+                // Use the Google Drive API to get the file content
+                const response = await gapi.client.drive.files.get({
+                    fileId: fileId,
+                    alt: 'media'
+                });
+
+                // Convert the response to a blob
+                const blob = new Blob([response.body], { type: response.headers['Content-Type'] });
                 
-                const blob = await response.blob();
-                cacheImage(fileId, blob);
+                // Cache the blob
+                await cacheImage(fileId, blob);
+                
                 return blob;
             } catch (error) {
-                logDebug('Error fetching image', { fileId, error });
+                logDebug('Error exporting file', { fileId, error });
                 throw error;
             }
         }
 
         /**
-         * Custom renderer for BlueImp Gallery to handle authentication and caching
+         * Process images in a queue to avoid rate limiting
+         */
+        async function processImagesQueue(fileIds, callback) {
+            const validItems = [];
+            const totalImages = fileIds.length;
+            let processedCount = 0;
+            let successCount = 0;
+            
+            if (totalImages === 0) {
+                callback([]);
+                return;
+            }
+            
+            // Show progress bar
+            showProgress(true);
+            updateProgress(0, `Preparing images (0/${totalImages})...`);
+            
+            // Create a queue of images to process
+            const queue = [...fileIds];
+            
+            // Process images one by one with a delay between each
+            async function processNext() {
+                if (queue.length === 0) {
+                    // All images processed
+                    updateProgress(100, `Completed! ${successCount}/${totalImages} images loaded successfully`);
+                    showProgress(false);
+                    callback(validItems);
+                    return;
+                }
+                
+                // Get the next file ID from the queue
+                const fileId = queue.shift();
+                
+                try {
+                    // Try to export the file
+                    const blob = await exportFile(fileId);
+                    
+                    // Add to valid items
+                    validItems.push({
+                        fileId: fileId,
+                        blob: blob,
+                        title: htrainee.fileNames[htrainee.fileIds.indexOf(fileId)] || ''
+                    });
+                    
+                    successCount++;
+                    logDebug('Image processed successfully', { fileId });
+                } catch (error) {
+                    logDebug('Failed to process image', { fileId, error });
+                }
+                
+                // Update progress
+                processedCount++;
+                const progress = Math.round((processedCount / totalImages) * 100);
+                updateProgress(progress, `Preparing images (${processedCount}/${totalImages})...`);
+                
+                // Process the next image after a delay
+                if (queue.length > 0) {
+                    // Add a random delay between 300-800ms to avoid detection as automated queries
+                    const delay = 300 + Math.floor(Math.random() * 500);
+                    setTimeout(processNext, delay);
+                } else {
+                    // All images processed
+                    updateProgress(100, `Completed! ${successCount}/${totalImages} images loaded successfully`);
+                    showProgress(false);
+                    callback(validItems);
+                }
+            }
+            
+            // Start processing the queue
+            processNext();
+        }
+
+        /**
+         * Show or hide the progress bar
+         */
+        function showProgress(show) {
+            if (show) {
+                htrainee.progressContainer.classList.remove('hidden');
+            } else {
+                htrainee.progressContainer.classList.add('hidden');
+            }
+        }
+
+        /**
+         * Update the progress bar
+         */
+        function updateProgress(percent, status) {
+            htrainee.progressBar.style.width = percent + '%';
+            htrainee.progressBar.setAttribute('aria-valuenow', percent);
+            htrainee.progressText.textContent = percent + '%';
+            htrainee.progressStatus.textContent = status;
+        }
+
+        /**
+         * Custom renderer for BlueImp Gallery to handle blob images
          */
         function customGalleryRenderer(obj, callback) {
             const img = document.createElement('img');
-            const fileId = obj.fileId;
             
             // Set crossOrigin to anonymous to avoid CORS issues
             img.crossOrigin = 'anonymous';
@@ -787,112 +840,21 @@
             };
             
             img.onerror = function() {
-                logDebug('Image failed to load in renderer', { fileId });
+                logDebug('Image failed to load in renderer', { fileId: obj.fileId });
                 
-                // Try to fetch the image with authentication and caching
-                fetchImageWithAuth(fileId)
-                    .then(blob => {
-                        const objectUrl = URL.createObjectURL(blob);
-                        img.onload = function() {
-                            URL.revokeObjectURL(objectUrl);
-                            callback(img);
-                        };
-                        img.onerror = function() {
-                            URL.revokeObjectURL(objectUrl);
-                            logDebug('Image still failed to load after fetching blob', { fileId });
-                            const fallback = document.createElement('div');
-                            fallback.className = 'fallback-image';
-                            fallback.textContent = 'Image could not be loaded. Please check your permissions.';
-                            callback(fallback);
-                        };
-                        img.src = objectUrl;
-                    })
-                    .catch(error => {
-                        logDebug('Failed to load image after retry', { fileId, error });
-                        const fallback = document.createElement('div');
-                        fallback.className = 'fallback-image';
-                        fallback.textContent = 'Image could not be loaded. Please check your permissions.';
-                        callback(fallback);
-                    });
+                const fallback = document.createElement('div');
+                fallback.className = 'fallback-image';
+                fallback.textContent = 'Image could not be loaded. Please check your permissions.';
+                callback(fallback);
             };
             
-            // First try to get the image from cache
-            const cachedImage = getImageFromCache(fileId);
-            if (cachedImage) {
-                const objectUrl = URL.createObjectURL(cachedImage);
-                img.onload = function() {
-                    URL.revokeObjectURL(objectUrl);
-                    callback(img);
-                };
-                img.onerror = function() {
-                    URL.revokeObjectURL(objectUrl);
-                    logDebug('Cached image failed to load', { fileId });
-                    img.src = obj.href; // Fall back to the URL
-                };
-                img.src = objectUrl;
-            } else {
-                // If not in cache, try the URL
-                img.src = obj.href;
-            }
-        }
-
-        /**
-         * Preload images to check if they load correctly and cache them
-         */
-        function preloadImages(fileIds, urls, callback) {
-            let loadedCount = 0;
-            const validItems = [];
-            const totalImages = urls.length;
-            
-            if (totalImages === 0) {
-                callback([]);
-                return;
-            }
-            
-            for (let i = 0; i < totalImages; i++) {
-                const fileId = fileIds[i];
-                const url = urls[i];
-                const fileName = htrainee.fileNames[i] || '';
-                
-                // Check if the image is already in the cache
-                const cachedImage = getImageFromCache(fileId);
-                if (cachedImage) {
-                    // Add to valid items and continue
-                    validItems.push({
-                        href: url,
-                        fileId: fileId,
-                        title: fileName
-                    });
-                    loadedCount++;
-                    
-                    if (loadedCount === totalImages) {
-                        callback(validItems);
-                    }
-                    continue;
-                }
-
-                // If not in cache, try to fetch and cache the image
-                fetchImageWithAuth(fileId)
-                    .then(blob => {
-                        validItems.push({
-                            href: url,
-                            fileId: fileId,
-                            title: fileName
-                        });
-                        checkComplete();
-                    })
-                    .catch(error => {
-                        logDebug('Failed to preload image', { fileId, error });
-                        checkComplete();
-                    });
-            }
-            
-            function checkComplete() {
-                loadedCount++;
-                if (loadedCount === totalImages) {
-                    callback(validItems);
-                }
-            }
+            // Create object URL from the blob
+            const objectUrl = URL.createObjectURL(obj.blob);
+            img.onload = function() {
+                URL.revokeObjectURL(objectUrl);
+                callback(img);
+            };
+            img.src = objectUrl;
         }
 
         function showOptions() {
@@ -1017,8 +979,19 @@
                     return;
                 }
                 
-                // Preload and cache images
-                preloadImages(htrainee.fileIds, htrainee.urls, function(validItems) {
+                // Process images in a queue to avoid rate limiting
+                let fileIdsToProcess = [...htrainee.fileIds];
+                
+                // Apply limit if needed
+                if (htrainee.limitValue > 0 && fileIdsToProcess.length > htrainee.limitValue) {
+                    // If shuffle is checked, shuffle before limiting
+                    if (htrainee.shuffleCheckbox.checked) {
+                        shuffle(fileIdsToProcess);
+                    }
+                    fileIdsToProcess = fileIdsToProcess.slice(0, htrainee.limitValue);
+                }
+                
+                processImagesQueue(fileIdsToProcess, function(validItems) {
                     showLoading(false);
                     
                     if (validItems.length === 0) {
@@ -1045,22 +1018,26 @@
         function startGallery(items) {
             var validItems = [...items]; // Clone the array
             
-            if (htrainee.shuffleCheckbox.checked) {
+            // If shuffle is checked and we haven't already shuffled (in the case of limiting)
+            if (htrainee.shuffleCheckbox.checked && htrainee.limitValue <= 0) {
                 shuffle(validItems);
-            }
-
-            if (htrainee.limitValue > 0) {
-                validItems = validItems.slice(0, htrainee.limitValue);
             }
 
             // Override the default renderer to use our custom one
             blueimp.Gallery.prototype.imageFactory = customGalleryRenderer;
 
-            htrainee.gallery = blueimp.Gallery(validItems, {
+            // Create gallery items in the format expected by BlueImp Gallery
+            const galleryItems = validItems.map(item => ({
+                title: item.title,
+                fileId: item.fileId,
+                blob: item.blob
+            }));
+
+            htrainee.gallery = blueimp.Gallery(galleryItems, {
                 onclose: stop,
-                preloadRange: 2, // Reduced from 4 to avoid hitting rate limits
+                preloadRange: 2,
                 onopened: function() {
-                    logDebug('Gallery opened', { imageCount: validItems.length });
+                    logDebug('Gallery opened', { imageCount: galleryItems.length });
                 },
                 onerror: function(e) {
                     logDebug('Gallery error', e);
