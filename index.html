@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DHTrainator - Google Drive Conditioning Helper</title>
+    <title>HTrainator - Google Drive Conditioning Helper</title>
     <!-- Bootstrap CSS -->
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
     <!-- BlueImp Gallery CSS -->
@@ -116,7 +116,7 @@
 <body>
     <div class="container-fluid text-center">
         <h1>HTrainator</h1>
-        <h4>aka. HTraining Academy Conditioning Helper</h4>
+        <h4>aka. HTTTraining Academy Conditioning Helper</h4>
         <p>This tool will help you with your conditioning.</p>
         <ol class="text-left">
             <li>Login with your Google Drive account and select a folder with images.</li>
@@ -860,30 +860,7 @@
                     img.onerror = function() {
                         logDebug('Image failed to load in renderer', { fileId: obj.fileId });
                         URL.revokeObjectURL(objectUrl);
-                        
-                        // Create a fallback image (a colored rectangle with text)
-                        const canvas = document.createElement('canvas');
-                        canvas.width = 400;
-                        canvas.height = 300;
-                        const ctx = canvas.getContext('2d');
-                        
-                        // Fill with a light gray background
-                        ctx.fillStyle = '#f0f0f0';
-                        ctx.fillRect(0, 0, canvas.width, canvas.height);
-                        
-                        // Add text
-                        ctx.fillStyle = '#721c24';
-                        ctx.font = '16px Arial';
-                        ctx.textAlign = 'center';
-                        ctx.fillText('Image could not be loaded', canvas.width/2, canvas.height/2 - 10);
-                        ctx.fillText('Please check your permissions', canvas.width/2, canvas.height/2 + 20);
-                        
-                        // Convert canvas to image
-                        const fallbackImg = new Image();
-                        fallbackImg.src = canvas.toDataURL();
-                        fallbackImg.onload = function() {
-                            callback(fallbackImg);
-                        };
+                        createFallbackImage();
                     };
             
                     // Set the image source to the object URL
@@ -896,7 +873,7 @@
                 logDebug('No valid blob for image', { fileId: obj.fileId });
                 createFallbackImage();
             }
-    
+
             // Helper function to create a fallback image
             function createFallbackImage() {
                 // Create a canvas element for the fallback
@@ -904,24 +881,33 @@
                 canvas.width = 400;
                 canvas.height = 300;
                 const ctx = canvas.getContext('2d');
-        
+
                 // Fill with a light gray background
                 ctx.fillStyle = '#f0f0f0';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
+
                 // Add text
                 ctx.fillStyle = '#721c24';
                 ctx.font = '16px Arial';
                 ctx.textAlign = 'center';
                 ctx.fillText('Image data is not available', canvas.width/2, canvas.height/2 - 10);
                 ctx.fillText('Please try reloading', canvas.width/2, canvas.height/2 + 20);
-        
-                // Convert canvas to image
+
+                // Convert canvas to image - but don't set onload directly
                 const fallbackImg = new Image();
-                fallbackImg.src = canvas.toDataURL();
+                
+                // Set the src after defining onload to ensure the handler is in place
                 fallbackImg.onload = function() {
-                    callback(fallbackImg);
+                    // Instead of directly passing the fallbackImg to callback,
+                    // copy its properties to the original img element
+                    img.src = fallbackImg.src;
+                    
+                    // Now call the callback with the original img that has all event handlers
+                    // that BlueImp Gallery expects
+                    callback(img);
                 };
+                
+                fallbackImg.src = canvas.toDataURL();
             }
         }
 
