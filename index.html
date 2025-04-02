@@ -94,6 +94,16 @@
             margin: 10px 0;
             border-radius: 4px;
         }
+        .fallback-image {
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin: 0 auto;
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 4px;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -233,6 +243,9 @@
         let gisInited = false;
         let tokenClient;
 
+        // Initialize the image cache
+        htrainee.imageCache = {};
+
         function escapeHtml(str) {
             var div = document.createElement("div");
             div.appendChild(document.createTextNode(str));
@@ -364,6 +377,8 @@
                     gapi.client.setToken('');
                     updateSigninStatus(false);
                     showSuccess("Signed out successfully");
+                    // Clear the image cache when signing out
+                    clearImageCache();
                 });
             } else {
                 updateSigninStatus(false);
@@ -430,6 +445,8 @@
                         }
 
                         htrainee.folderSelect.onchange = function() {
+                            // Clear the image cache when changing folders
+                            clearImageCache();
                             listFiles(htrainee.folderSelect.value);
                         }
                         
@@ -480,63 +497,351 @@
             showLoading(true);
             htrainee.urls = [];
             htrainee.fileIds = [];
+            htrainee.fileNames = [];
 
-            gapi.client.drive.files.list({
-                'q': "trashed=false and '" + folderId + "' in parents and mimeType contains 'image/' and mimeType != 'application/vnd.google-apps.folder'",
-                'fields': "files(id, name, webContentLink)",
-                'pageSize': 1000
-            }).then(function(response) {
-                if (!response.error) {
-                    var files = response.result.files;
-                    if (files && files.length > 0) {
-                        for (var i = 0; i < files.length; i++) {
-                            // Store the file ID for later use
-                            htrainee.fileIds.push(files[i].id);
+            // Use a smaller page size to avoid rate limiting
+            const pageSize = 20;
+            let pageToken = null;
+            
+            function fetchPage() {
+                const params = {
+                    'q': "trashed=false and '" + folderId + "' in parents and mimeType contains 'image/' and mimeType != 'application/vnd.google-apps.folder'",
+                    'fields': "nextPageToken, files(id, name, mimeType)",
+                    'pageSize': pageSize
+                };
+                
+                if (pageToken) {
+                    params.pageToken = pageToken;
+                }
+                
+                gapi.client.drive.files.list(params).then(function(response) {
+                    if (!response.error) {
+                        var files = response.result.files;
+                        if (files && files.length > 0) {
+                            for (var i = 0; i < files.length; i++) {
+                                // Store the file ID and name for later use
+                                htrainee.fileIds.push(files[i].id);
+                                htrainee.fileNames.push(files[i].name);
+                                
+                                // We'll use the direct API URL with authentication token
+                                const directUrl = getDirectDownloadUrl(files[i].id);
+                                htrainee.urls.push(directUrl);
+                            }
                             
-                            // Use the direct download URL with access token
-                            const directUrl = getDirectDownloadUrl(files[i].id);
-                            htrainee.urls.push(directUrl);
+                            // Check if there are more pages
+                            if (response.result.nextPageToken) {
+                                pageToken = response.result.nextPageToken;
+                                // Wait a short time before fetching the next page to avoid rate limiting
+                                setTimeout(fetchPage, 500);
+                            } else {
+                                // All pages fetched
+                                finishListFiles();
+                            }
+                        } else {
+                            // No files in this page
+                            finishListFiles();
                         }
-
-                        document.getElementById("folder-help").innerHTML = "Loaded " + htrainee.urls.length + " images.";
-                        
-                        if (htrainee.urls.length > 0) {
-                            feedbackOK(document.getElementById("folder-group"));
-                        }
-
-                        // start autoplay timeout after successful image loading
-                        var args_autoplay = parseInt(htrainee.args["autoplay"]);
-                        if (args_autoplay >= 0) {
-                            setTimeout(start, args_autoplay * 1000);
-                        }
-
-                        updateStartHelp();
-                        showLoading(false);
                     } else {
-                        feedbackError(document.getElementById("folder-group"));
-                        document.getElementById("folder-help").innerHTML = "No image files in folder.";
+                        if (handleRateLimiting(response.error)) {
+                            document.getElementById("folder-help").innerHTML = "Rate limit reached. Please try again in a moment.";
+                        } else {
+                            feedbackError(document.getElementById("folder-group"));
+                            document.getElementById("folder-help").innerHTML = "Failed to fetch files. Error: " + response.error;
+                            console.error(response.error);
+                        }
                         showLoading(false);
                     }
+                }).catch(function(error) {
+                    if (handleRateLimiting(error)) {
+                        document.getElementById("folder-help").innerHTML = "Rate limit reached. Please try again in a moment.";
+                    } else {
+                        feedbackError(document.getElementById("folder-group"));
+                        document.getElementById("folder-help").innerHTML = "Failed to fetch files.";
+                        logDebug('Files Error:', error);
+                    }
+                    showLoading(false);
+                });
+            }
+            
+            function finishListFiles() {
+                document.getElementById("folder-help").innerHTML = "Loaded " + htrainee.urls.length + " images.";
+                
+                if (htrainee.urls.length > 0) {
+                    feedbackOK(document.getElementById("folder-group"));
                 } else {
                     feedbackError(document.getElementById("folder-group"));
-                    document.getElementById("folder-help").innerHTML = "Failed to fetch files. Error: " + response.error;
-                    console.error(response.error);
-                    showLoading(false);
+                    document.getElementById("folder-help").innerHTML = "No image files in folder.";
                 }
-            }).catch(function(error) {
-                feedbackError(document.getElementById("folder-group"));
-                document.getElementById("folder-help").innerHTML = "Failed to fetch files.";
-                logDebug('Files Error:', error);
+
+                // start autoplay timeout after successful image loading
+                var args_autoplay = parseInt(htrainee.args["autoplay"]);
+                if (args_autoplay >= 0) {
+                    setTimeout(start, args_autoplay * 1000);
+                }
+
+                updateStartHelp();
                 showLoading(false);
-            });
+            }
+            
+            // Start fetching the first page
+            fetchPage();
         }
 
         /**
-         * Preload images to check if they load correctly
+         * Handle rate limiting errors
          */
-        function preloadImages(urls, callback) {
+        function handleRateLimiting(error) {
+            if (error && (error.status === 403 || error.status === 429)) {
+                showError("Google Drive rate limit reached. Please wait a moment before trying again.");
+                logDebug('Rate limit detected', error);
+                return true;
+            }
+            return false;
+        }
+
+        /**
+         * Cache an image in memory and in the browser's Cache API
+         */
+        async function cacheImage(fileId, blob) {
+            // In-memory cache
+            htrainee.imageCache[fileId] = {
+                blob: blob,
+                timestamp: Date.now()
+            };
+            
+            // Try to use the Cache API for persistent caching
+            try {
+                if ('caches' in window) {
+                    const cache = await caches.open('htrainee-images');
+                    const response = new Response(blob);
+                    await cache.put(`image-${fileId}`, response);
+                    logDebug('Image cached in Cache API', { fileId });
+                }
+            } catch (error) {
+                logDebug('Failed to cache in Cache API', { fileId, error });
+            }
+            
+            logDebug('Image cached in memory', { fileId });
+        }
+
+        /**
+         * Get an image from the cache (memory or Cache API)
+         */
+        async function getImageFromCache(fileId) {
+            // First check memory cache
+            const cachedImage = htrainee.imageCache[fileId];
+            if (cachedImage) {
+                // Check if the cache is still valid (1 hour)
+                const now = Date.now();
+                if (now - cachedImage.timestamp < 3600000) {
+                    logDebug('Image retrieved from memory cache', { fileId });
+                    return cachedImage.blob;
+                } else {
+                    // Cache expired, remove it
+                    delete htrainee.imageCache[fileId];
+                }
+            }
+            
+            // Then check Cache API
+            try {
+                if ('caches' in window) {
+                    const cache = await caches.open('htrainee-images');
+                    const response = await cache.match(`image-${fileId}`);
+                    if (response) {
+                        const blob = await response.blob();
+                        // Update memory cache
+                        htrainee.imageCache[fileId] = {
+                            blob: blob,
+                            timestamp: Date.now()
+                        };
+                        logDebug('Image retrieved from Cache API', { fileId });
+                        return blob;
+                    }
+                }
+            } catch (error) {
+                logDebug('Failed to retrieve from Cache API', { fileId, error });
+            }
+            
+            return null;
+        }
+
+        /**
+         * Clear the image cache
+         */
+        async function clearImageCache() {
+            // Clear memory cache
+            htrainee.imageCache = {};
+            htrainee.cachedGalleryItems = null;
+            htrainee.cachedFolderId = null;
+            
+            // Clear Cache API
+            try {
+                if ('caches' in window) {
+                    await caches.delete('htrainee-images');
+                    logDebug('Cache API cleared', {});
+                }
+            } catch (error) {
+                logDebug('Failed to clear Cache API', { error });
+            }
+            
+            logDebug('Image cache cleared', {});
+        }
+
+        /**
+         * Fetch an image with authentication and cache it
+         */
+        async function fetchImageWithAuth(fileId) {
+            // Check if the image is in the cache
+            const cachedImage = getImageFromCache(fileId);
+            if (cachedImage) {
+                return cachedImage;
+            }
+
+            // Get a fresh token if needed
+            const token = gapi.client.getToken();
+            if (!token) {
+                throw new Error('No authentication token available');
+            }
+
+            try {
+                // Fetch the image with the current token
+                const url = getDirectDownloadUrl(fileId);
+                const response = await fetch(url, {
+                    headers: {
+                        'Cache-Control': 'no-cache',
+                        'Pragma': 'no-cache'
+                    }
+                });
+                
+                if (!response.ok) {
+                    // If unauthorized, try to refresh the token
+                    if (response.status === 401 || response.status === 403) {
+                        logDebug('Token expired or access denied, refreshing', { status: response.status });
+                        
+                        // Try to refresh the token
+                        await new Promise((resolve, reject) => {
+                            tokenClient.callback = (resp) => {
+                                if (resp.error) {
+                                    logDebug('Token refresh failed', resp);
+                                    reject(new Error('Token refresh failed'));
+                                } else {
+                                    logDebug('Token refreshed', {});
+                                    resolve();
+                                }
+                            };
+                            tokenClient.requestAccessToken({prompt: ''});
+                        });
+                        
+                        // Try again with the new token
+                        const newUrl = getDirectDownloadUrl(fileId);
+                        const newResponse = await fetch(newUrl, {
+                            headers: {
+                                'Cache-Control': 'no-cache',
+                                'Pragma': 'no-cache'
+                            }
+                        });
+                        
+                        if (!newResponse.ok) {
+                            throw new Error(`Failed to fetch image after token refresh: ${newResponse.status}`);
+                        }
+                        
+                        const blob = await newResponse.blob();
+                        cacheImage(fileId, blob);
+                        return blob;
+                    } else if (response.status === 429) {
+                        // Rate limiting - implement exponential backoff
+                        const retryAfter = response.headers.get('Retry-After') || 1;
+                        logDebug('Rate limited, retrying after delay', { retryAfter });
+                        
+                        await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+                        
+                        // Try again after waiting
+                        return fetchImageWithAuth(fileId);
+                    } else {
+                        throw new Error(`Failed to fetch image: ${response.status}`);
+                    }
+                }
+                
+                const blob = await response.blob();
+                cacheImage(fileId, blob);
+                return blob;
+            } catch (error) {
+                logDebug('Error fetching image', { fileId, error });
+                throw error;
+            }
+        }
+
+        /**
+         * Custom renderer for BlueImp Gallery to handle authentication and caching
+         */
+        function customGalleryRenderer(obj, callback) {
+            const img = document.createElement('img');
+            const fileId = obj.fileId;
+            
+            // Set crossOrigin to anonymous to avoid CORS issues
+            img.crossOrigin = 'anonymous';
+            
+            // Set up load and error handlers
+            img.onload = function() {
+                callback(img);
+            };
+            
+            img.onerror = function() {
+                logDebug('Image failed to load in renderer', { fileId });
+                
+                // Try to fetch the image with authentication and caching
+                fetchImageWithAuth(fileId)
+                    .then(blob => {
+                        const objectUrl = URL.createObjectURL(blob);
+                        img.onload = function() {
+                            URL.revokeObjectURL(objectUrl);
+                            callback(img);
+                        };
+                        img.onerror = function() {
+                            URL.revokeObjectURL(objectUrl);
+                            logDebug('Image still failed to load after fetching blob', { fileId });
+                            const fallback = document.createElement('div');
+                            fallback.className = 'fallback-image';
+                            fallback.textContent = 'Image could not be loaded. Please check your permissions.';
+                            callback(fallback);
+                        };
+                        img.src = objectUrl;
+                    })
+                    .catch(error => {
+                        logDebug('Failed to load image after retry', { fileId, error });
+                        const fallback = document.createElement('div');
+                        fallback.className = 'fallback-image';
+                        fallback.textContent = 'Image could not be loaded. Please check your permissions.';
+                        callback(fallback);
+                    });
+            };
+            
+            // First try to get the image from cache
+            const cachedImage = getImageFromCache(fileId);
+            if (cachedImage) {
+                const objectUrl = URL.createObjectURL(cachedImage);
+                img.onload = function() {
+                    URL.revokeObjectURL(objectUrl);
+                    callback(img);
+                };
+                img.onerror = function() {
+                    URL.revokeObjectURL(objectUrl);
+                    logDebug('Cached image failed to load', { fileId });
+                    img.src = obj.href; // Fall back to the URL
+                };
+                img.src = objectUrl;
+            } else {
+                // If not in cache, try the URL
+                img.src = obj.href;
+            }
+        }
+
+        /**
+         * Preload images to check if they load correctly and cache them
+         */
+        function preloadImages(fileIds, urls, callback) {
             let loadedCount = 0;
-            const validUrls = [];
+            const validItems = [];
             const totalImages = urls.length;
             
             if (totalImages === 0) {
@@ -544,28 +849,50 @@
                 return;
             }
             
-            urls.forEach((url, index) => {
-                const img = new Image();
+            for (let i = 0; i < totalImages; i++) {
+                const fileId = fileIds[i];
+                const url = urls[i];
+                const fileName = htrainee.fileNames[i] || '';
                 
-                img.onload = function() {
-                    validUrls.push(url);
-                    checkComplete();
-                };
-                
-                img.onerror = function() {
-                    logDebug('Image failed to load', { url });
-                    checkComplete();
-                };
-                
-                img.src = url;
-                
-                function checkComplete() {
+                // Check if the image is already in the cache
+                const cachedImage = getImageFromCache(fileId);
+                if (cachedImage) {
+                    // Add to valid items and continue
+                    validItems.push({
+                        href: url,
+                        fileId: fileId,
+                        title: fileName
+                    });
                     loadedCount++;
+                    
                     if (loadedCount === totalImages) {
-                        callback(validUrls);
+                        callback(validItems);
                     }
+                    continue;
                 }
-            });
+
+                // If not in cache, try to fetch and cache the image
+                fetchImageWithAuth(fileId)
+                    .then(blob => {
+                        validItems.push({
+                            href: url,
+                            fileId: fileId,
+                            title: fileName
+                        });
+                        checkComplete();
+                    })
+                    .catch(error => {
+                        logDebug('Failed to preload image', { fileId, error });
+                        checkComplete();
+                    });
+            }
+            
+            function checkComplete() {
+                loadedCount++;
+                if (loadedCount === totalImages) {
+                    callback(validItems);
+                }
+            }
         }
 
         function showOptions() {
@@ -683,52 +1010,27 @@
             if (!htrainee.gallery) {
                 showLoading(true);
                 
-                // Preload images to check if they load correctly
-                preloadImages(htrainee.urls, function(validUrls) {
+                // Check if we have a cached result
+                if (htrainee.cachedGalleryItems && htrainee.cachedFolderId === htrainee.folderSelect.value) {
+                    showLoading(false);
+                    startGallery(htrainee.cachedGalleryItems);
+                    return;
+                }
+                
+                // Preload and cache images
+                preloadImages(htrainee.fileIds, htrainee.urls, function(validItems) {
                     showLoading(false);
                     
-                    if (validUrls.length === 0) {
+                    if (validItems.length === 0) {
                         showError("No images could be loaded. Please check your permissions and try again.");
                         return;
                     }
                     
-                    var urls = validUrls.slice();
-                    if (htrainee.shuffleCheckbox.checked) {
-                        shuffle(urls);
-                    }
-
-                    if (htrainee.limitValue > 0) {
-                        urls = urls.slice(0, htrainee.limitValue);
-                    }
-
-                    htrainee.gallery = blueimp.Gallery(urls, {
-                        onclose: stop,
-                        preloadRange: 4,
-                        onopened: function() {
-                            logDebug('Gallery opened', { imageCount: urls.length });
-                        },
-                        onerror: function(e) {
-                            logDebug('Gallery error', e);
-                        }
-                    });
-
-                    if (htrainee.beats > 0) {
-                        // Custom event listeners have to be added after gallery ones, so they will be called first
-                        document.getElementById("play-pause").addEventListener("click", toggleSlideShow);
-                        document.body.addEventListener("keydown", function(event) {
-                            var key = event.which || event.keyCode;
-                            if (key == 32) { // Space
-                                toggleSlideShow(event);
-                            }
-                        });
-                    }
+                    // Cache the results
+                    htrainee.cachedGalleryItems = validItems;
+                    htrainee.cachedFolderId = htrainee.folderSelect.value;
                     
-                    if (htrainee.beats > 0) {
-                        htrainee.startTime = new Date().getTime();
-                        htrainee.metronome = setTimeout(tick, 1000 / (htrainee.beats / 60));
-                        document.getElementById("blueimp-gallery").classList.add("blueimp-gallery-playing");
-                        htrainee.playing = true;
-                    }
+                    startGallery(validItems);
                 });
             } else {
                 if (htrainee.beats > 0) {
@@ -737,6 +1039,50 @@
                     document.getElementById("blueimp-gallery").classList.add("blueimp-gallery-playing");
                     htrainee.playing = true;
                 }
+            }
+        }
+
+        function startGallery(items) {
+            var validItems = [...items]; // Clone the array
+            
+            if (htrainee.shuffleCheckbox.checked) {
+                shuffle(validItems);
+            }
+
+            if (htrainee.limitValue > 0) {
+                validItems = validItems.slice(0, htrainee.limitValue);
+            }
+
+            // Override the default renderer to use our custom one
+            blueimp.Gallery.prototype.imageFactory = customGalleryRenderer;
+
+            htrainee.gallery = blueimp.Gallery(validItems, {
+                onclose: stop,
+                preloadRange: 2, // Reduced from 4 to avoid hitting rate limits
+                onopened: function() {
+                    logDebug('Gallery opened', { imageCount: validItems.length });
+                },
+                onerror: function(e) {
+                    logDebug('Gallery error', e);
+                }
+            });
+
+            if (htrainee.beats > 0) {
+                // Custom event listeners have to be added after gallery ones, so they will be called first
+                document.getElementById("play-pause").addEventListener("click", toggleSlideShow);
+                document.body.addEventListener("keydown", function(event) {
+                    var key = event.which || event.keyCode;
+                    if (key == 32) { // Space
+                        toggleSlideShow(event);
+                    }
+                });
+            }
+            
+            if (htrainee.beats > 0) {
+                htrainee.startTime = new Date().getTime();
+                htrainee.metronome = setTimeout(tick, 1000 / (htrainee.beats / 60));
+                document.getElementById("blueimp-gallery").classList.add("blueimp-gallery-playing");
+                htrainee.playing = true;
             }
         }
 
@@ -913,3 +1259,4 @@
     </script>
 </body>
 </html>
+
