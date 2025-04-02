@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HTrainator - Google Drive Conditioning Helper</title>
+    <title>DHTrainator - Google Drive Conditioning Helper</title>
     <!-- Bootstrap CSS -->
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
     <!-- BlueImp Gallery CSS -->
@@ -712,20 +712,21 @@
                     throw new Error('No authentication token available');
                 }
 
-                // Use the Google Drive API to get the file content
-                const response = await gapi.client.drive.files.get({
-                    fileId: fileId,
-                    alt: 'media'
+                // Use a direct fetch with the access token instead of gapi.client
+                // This can be more reliable for binary data
+                const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+                const response = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${token.access_token}`
+                    }
                 });
 
-                // Make sure we have a response body
-                if (!response.body) {
-                    throw new Error('Empty response from Google Drive API');
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch image: ${response.status}`);
                 }
 
-                // Convert the response to a blob
-                const contentType = response.headers['Content-Type'] || 'image/jpeg';
-                const blob = new Blob([response.body], { type: contentType });
+                // Get the blob directly from the response
+                const blob = await response.blob();
                 
                 // Cache the blob
                 await cacheImage(fileId, blob);
@@ -835,41 +836,92 @@
          * Custom renderer for BlueImp Gallery to handle blob images
          */
         function customGalleryRenderer(obj, callback) {
+            // Create an image element
             const img = document.createElement('img');
             
             // Set crossOrigin to anonymous to avoid CORS issues
             img.crossOrigin = 'anonymous';
             
-            // Set up load and error handlers
-            img.onload = function() {
-                callback(img);
-            };
-            
-            img.onerror = function() {
-                logDebug('Image failed to load in renderer', { fileId: obj.fileId });
-                
-                const fallback = document.createElement('div');
-                fallback.className = 'fallback-image';
-                fallback.textContent = 'Image could not be loaded. Please check your permissions.';
-                callback(fallback);
-            };
-            
             // Check if we have a valid blob
             if (obj.blob && obj.blob instanceof Blob) {
-                // Create object URL from the blob
-                const objectUrl = URL.createObjectURL(obj.blob);
-                img.onload = function() {
-                    URL.revokeObjectURL(objectUrl);
-                    callback(img);
-                };
-                img.src = objectUrl;
+                try {
+                    // Create object URL from the blob
+                    const objectUrl = URL.createObjectURL(obj.blob);
+                    
+                    // Set up load handler
+                    img.onload = function() {
+                        // Clean up the object URL to avoid memory leaks
+                        URL.revokeObjectURL(objectUrl);
+                        callback(img);
+                    };
+                    
+                    // Set up error handler - but don't call callback here
+                    // Instead, create a fallback image
+                    img.onerror = function() {
+                        logDebug('Image failed to load in renderer', { fileId: obj.fileId });
+                        URL.revokeObjectURL(objectUrl);
+                        
+                        // Create a fallback image (a colored rectangle with text)
+                        const canvas = document.createElement('canvas');
+                        canvas.width = 400;
+                        canvas.height = 300;
+                        const ctx = canvas.getContext('2d');
+                        
+                        // Fill with a light gray background
+                        ctx.fillStyle = '#f0f0f0';
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                        
+                        // Add text
+                        ctx.fillStyle = '#721c24';
+                        ctx.font = '16px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('Image could not be loaded', canvas.width/2, canvas.height/2 - 10);
+                        ctx.fillText('Please check your permissions', canvas.width/2, canvas.height/2 + 20);
+                        
+                        // Convert canvas to image
+                        const fallbackImg = new Image();
+                        fallbackImg.src = canvas.toDataURL();
+                        fallbackImg.onload = function() {
+                            callback(fallbackImg);
+                        };
+                    };
+            
+                    // Set the image source to the object URL
+                    img.src = objectUrl;
+                } catch (error) {
+                    logDebug('Error creating object URL', { fileId: obj.fileId, error });
+                    createFallbackImage();
+                }
             } else {
-                // If no valid blob, show fallback
                 logDebug('No valid blob for image', { fileId: obj.fileId });
-                const fallback = document.createElement('div');
-                fallback.className = 'fallback-image';
-                fallback.textContent = 'Image data is not available. Please try reloading.';
-                callback(fallback);
+                createFallbackImage();
+            }
+    
+            // Helper function to create a fallback image
+            function createFallbackImage() {
+                // Create a canvas element for the fallback
+                const canvas = document.createElement('canvas');
+                canvas.width = 400;
+                canvas.height = 300;
+                const ctx = canvas.getContext('2d');
+        
+                // Fill with a light gray background
+                ctx.fillStyle = '#f0f0f0';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+                // Add text
+                ctx.fillStyle = '#721c24';
+                ctx.font = '16px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('Image data is not available', canvas.width/2, canvas.height/2 - 10);
+                ctx.fillText('Please try reloading', canvas.width/2, canvas.height/2 + 20);
+        
+                // Convert canvas to image
+                const fallbackImg = new Image();
+                fallbackImg.src = canvas.toDataURL();
+                fallbackImg.onload = function() {
+                    callback(fallbackImg);
+                };
             }
         }
 
