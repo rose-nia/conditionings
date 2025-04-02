@@ -718,8 +718,14 @@
                     alt: 'media'
                 });
 
+                // Make sure we have a response body
+                if (!response.body) {
+                    throw new Error('Empty response from Google Drive API');
+                }
+
                 // Convert the response to a blob
-                const blob = new Blob([response.body], { type: response.headers['Content-Type'] });
+                const contentType = response.headers['Content-Type'] || 'image/jpeg';
+                const blob = new Blob([response.body], { type: contentType });
                 
                 // Cache the blob
                 await cacheImage(fileId, blob);
@@ -848,13 +854,23 @@
                 callback(fallback);
             };
             
-            // Create object URL from the blob
-            const objectUrl = URL.createObjectURL(obj.blob);
-            img.onload = function() {
-                URL.revokeObjectURL(objectUrl);
-                callback(img);
-            };
-            img.src = objectUrl;
+            // Check if we have a valid blob
+            if (obj.blob && obj.blob instanceof Blob) {
+                // Create object URL from the blob
+                const objectUrl = URL.createObjectURL(obj.blob);
+                img.onload = function() {
+                    URL.revokeObjectURL(objectUrl);
+                    callback(img);
+                };
+                img.src = objectUrl;
+            } else {
+                // If no valid blob, show fallback
+                logDebug('No valid blob for image', { fileId: obj.fileId });
+                const fallback = document.createElement('div');
+                fallback.className = 'fallback-image';
+                fallback.textContent = 'Image data is not available. Please try reloading.';
+                callback(fallback);
+            }
         }
 
         function showOptions() {
@@ -1027,11 +1043,18 @@
             blueimp.Gallery.prototype.imageFactory = customGalleryRenderer;
 
             // Create gallery items in the format expected by BlueImp Gallery
-            const galleryItems = validItems.map(item => ({
-                title: item.title,
-                fileId: item.fileId,
+            // Make sure each item has a valid blob
+            const galleryItems = validItems.filter(item => item.blob && item.blob instanceof Blob).map(item => ({
+                title: item.title || '',
+                fileId: item.fileId || '',
                 blob: item.blob
             }));
+
+            if (galleryItems.length === 0) {
+                showError("No valid images could be loaded. Please try again.");
+                showLoading(false);
+                return;
+            }
 
             htrainee.gallery = blueimp.Gallery(galleryItems, {
                 onclose: stop,
